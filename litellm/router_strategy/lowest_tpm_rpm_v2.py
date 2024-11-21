@@ -2,7 +2,9 @@
 #   identifies lowest tpm deployment
 import random
 import traceback
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+import time
+import asyncio
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union, Callable, ClassVar, cast
 
 import httpx
 from pydantic import BaseModel
@@ -39,7 +41,12 @@ class LiteLLMBase(BaseModel):
 
 class RoutingArgs(LiteLLMBase):
     ttl: int = 1 * 60  # 1min (RPM/TPM expire key)
+    throttling_threshold: int = 20  # 20 rpm (RPM threshold when to start throttling)
+    throttling_multiplier: int = 1  # 1s (throttling base value at max rpm)
+    throttling_function: str = "off"  # throttling function to use
 
+class ThrottlingFunction(BaseModel):
+    saturated_linear: ClassVar[Callable[[float, float, float], float]] = lambda rpm, min_rpm, max_rpm: min(max((rpm - min_rpm) / (max_rpm - min_rpm), 0),1)
 
 class LowestTPMLoggingHandler_v2(CustomLogger):
     """
@@ -138,6 +145,14 @@ class LowestTPMLoggingHandler_v2(CustomLogger):
                             request=httpx.Request(method="tpm_rpm_limits", url="https://github.com/BerriAI/litellm"),  # type: ignore
                         ),
                     )
+                
+                        # do throttling
+            if result is not None:
+                sleep_seconds = self.get_throttle_sec(result, deployment_rpm)
+                if sleep_seconds > 0:
+                    verbose_router_logger.debug(f"Throttling enganged: current_rpm: {result}, deployment('{deployment.get('model_name')}')_rpm: {deployment_rpm}, sleep_seconds: {sleep_seconds}")
+                    time.sleep(sleep_seconds)  # sync sleep
+
             return deployment
         except Exception as e:
             if isinstance(e, litellm.RateLimitError):
@@ -224,12 +239,29 @@ class LowestTPMLoggingHandler_v2(CustomLogger):
                             request=httpx.Request(method="tpm_rpm_limits", url="https://github.com/BerriAI/litellm"),  # type: ignore
                         ),
                     )
+                
+            # do throttling
+            if result is not None:
+                sleep_seconds = self.get_throttle_sec(result, deployment_rpm)
+                if sleep_seconds > 0:
+                    verbose_router_logger.debug(f"Throttling enganged: current_rpm: {result}, deployment('{deployment.get('model_name')}')_rpm: {deployment_rpm}, sleep_seconds: {sleep_seconds}")
+                    await asyncio.sleep(sleep_seconds)  # async sleep
 
             return deployment
         except Exception as e:
             if isinstance(e, litellm.RateLimitError):
                 raise e
             return deployment  # don't fail calls if eg. redis fails to connect
+
+    def get_throttle_sec(self, current_rpm: Union[int,float], deployment_rpm: Union[int,float]) -> float:
+        """
+        Get throttle seconds based on current rpm and deployment rpm
+        """
+        match self.routing_args.throttling_function:
+            case "saturated_linear":
+                return ThrottlingFunction.saturated_linear(current_rpm, self.routing_args.throttling_threshold, deployment_rpm) * self.routing_args.throttling_multiplier
+            case _:
+                return 0
 
     def log_success_event(self, kwargs, response_obj, start_time, end_time):
         try:
