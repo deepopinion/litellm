@@ -6,6 +6,8 @@ from pydantic import BaseModel
 
 from litellm import print_verbose
 from litellm.caching.caching import DualCache, RedisCache
+from time import monotonic
+from litellm._logging import verbose_router_logger
 
 
 class SchedulerCacheKeys(enum.Enum):
@@ -51,12 +53,12 @@ class Scheduler:
         # get the queue
         queue = await self.get_queue(model_name=request.model_name)
         # update the queue
-        heapq.heappush(queue, (request.priority, request.request_id))
+        heapq.heappush(queue, (request.priority, monotonic(), request.request_id)) # insert the request so the ordering is based first on priority and then insertion time
 
         # save the queue
         await self.save_queue(queue=queue, model_name=request.model_name)
 
-    async def poll(self, id: str, model_name: str, health_deployments: list) -> bool:
+    async def poll(self, request:FlowItem, health_deployments: list) -> bool:
         """
         Return if request can be processed.
 
@@ -68,7 +70,7 @@ class Scheduler:
             * If no healthy deployments available
             * AND request not at the top of queue
         """
-        queue = await self.get_queue(model_name=model_name)
+        queue = await self.get_queue(model_name=request.model_name)
         if not queue:
             raise Exception(
                 "Incorrectly setup. Queue is invalid. Queue={}".format(queue)
@@ -79,22 +81,23 @@ class Scheduler:
         # ------------
 
         print_verbose(f"len(health_deployments): {len(health_deployments)}")
-        if len(health_deployments) == 0:
-            print_verbose(f"queue: {queue}, seeking id={id}")
-            # Check if the id is at the top of the heap
-            if queue[0][1] == id:
-                # Remove the item from the queue
-                heapq.heappop(queue)
-                print_verbose(f"Popped id: {id}")
-                return True
-            else:
-                return False
+        #if len(health_deployments) == 0:
+        verbose_router_logger.debug(f"len(queue): {len(queue)}")
+        verbose_router_logger.debug(f"queue: {queue}, seeking request={request}")
+        # Check if the id is at the top of the heap
+        if queue[0][0] == request.priority and queue[0][2] == request.request_id:
+            # Remove the item from the queue
+            heapq.heappop(queue)
+            verbose_router_logger.debug(f"Popped id: {id}")
+            return True
+        else:
+            return False
 
-        return True
+        #return True
 
-    async def peek(self, id: str, model_name: str, health_deployments: list) -> bool:
+    async def peek(self, request:FlowItem, health_deployments: list) -> bool:
         """Return if the id is at the top of the queue. Don't pop the value from heap."""
-        queue = await self.get_queue(model_name=model_name)
+        queue = await self.get_queue(model_name=request.model_name)
         if not queue:
             raise Exception(
                 "Incorrectly setup. Queue is invalid. Queue={}".format(queue)
@@ -105,7 +108,7 @@ class Scheduler:
         # ------------
 
         # Check if the id is at the top of the heap
-        if queue[0][1] == id:
+        if queue[0][0] == request.priority and queue[0][2] == request.request_id:
             return True
 
         return False

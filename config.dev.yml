@@ -1,5 +1,5 @@
 model_list:
-  - model_name: gpt-3.5-turbo
+  - model_name: gpt-3.5-turbo-fake
     litellm_params:
       model: openai/my-fake-model
       api_key: my-fake-key
@@ -9,35 +9,36 @@ model_list:
   # - model_name: gpt-3.5-turbo # litellm will 
   #   litellm_params:
   #     model: gpt-3.5-turbo-1106
-  #     api_key: sk-1234 # Your OPENAI API key
-  #     tpm: 1000
-  #     rpm: 2
-  # - model_name: gpt-3.5-turbo
-  #   litellm_params:
-  #     model: gpt-3.5-turbo-0125
-  #     api_key: sk-1234 # Your OPENAI API key
-  #     tpm: 1000
-  #     rpm: 2
+  #     api_key: sk-proj-1234
+  #     # tpm: 1000
+  #     # rpm: 2
+  - model_name: gpt-3.5-turbo
+    litellm_params:
+      model: gpt-3.5-turbo
+      api_key: sk-proj-1234
+      # tpm: 1000
+      # rpm: 2
   - model_name: gpt-4o-mini
     litellm_params:
       model: gpt-4o-mini
-      api_key: sk-1234 # Your OPENAI API key
-      tpm: 1000
-      rpm: 4
+      api_key: sk-proj-1234
+      # tpm: 1000
+      # rpm: 4
 
 router_settings:
-  routing_strategy: usage-based-routing-v2 # DeepOpinion modified: Uses throttling function to control traffic
-  routing_strategy_args:
-    throttling_threshold: 500
-    throttling_multiplier: 1
-    throttling_function: saturated_linear
+  #routing_strategy: usage-based-routing-v2 # DeepOpinion modified: Uses throttling function to control traffic
+  routing_strategy: simple-shuffle # Wheigthed pick based on tpm/rpm
+  #routing_strategy_args:
+  #  throttling_threshold: 250
+  #  throttling_multiplier: 1
+  #  throttling_function: saturated_linear
   #enable_pre_call_checks: true # If set to true, the router will check if the model is healthy before sending a request, thus enforcing tpm/rpm limits instead of throttling
   #polling_interval: 1 # Polling rate of prioritization queue
 
 litellm_settings:
   #set_verbose: False  # Uncomment this if you want to see verbose logs; not recommended in production
   drop_params: True # Drop unmapped parameters
-  use_queue: True # Use a queue to prioritize requests
+  #use_queue: True # Use a queue to prioritize requests
   num_retries: 3 # number of retries that the proxy will attempt before returning an error
   cooldown: 30 # cooldown a model if too many errors are returned
   request_timeout: 30

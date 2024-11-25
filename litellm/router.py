@@ -1315,13 +1315,14 @@ class Router:
         poll_interval = self.scheduler.polling_interval  # poll every 3ms
         make_request = False
 
+        await asyncio.sleep(poll_interval) # sleep at least once
+
         while curr_time < end_time:
             _healthy_deployments, _ = await self._async_get_healthy_deployments(
                 model=model, parent_otel_span=parent_otel_span
             )
             make_request = await self.scheduler.poll(  ## POLL QUEUE ## - returns 'True' if there's healthy deployments OR if request is at top of queue
-                id=item.request_id,
-                model_name=item.model_name,
+                request=item,
                 health_deployments=_healthy_deployments,
             )
             if make_request:  ## IF TRUE -> MAKE REQUEST
